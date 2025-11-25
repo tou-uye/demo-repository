@@ -1,0 +1,17 @@
+server:
+  port: ${SERVER_PORT:8090}
+spring:
+  datasource:
+    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/ai_invest?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+    username: ${MYSQL_USERNAME:api}
+    password: ${MYSQL_PASSWORD:123456}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+dify:
+  apiKey: ${DIFY_API_KEY:app-gquzPc2Cm25s8xn71y37rnol}
+  baseUrl: ${DIFY_BASE_URL:https://api.dify.ai/v1}
+retry:
+  maxAttempts: ${RETRY_MAX_ATTEMPTS:3}
+  delayMillis: ${RETRY_DELAY_MS:2000}
