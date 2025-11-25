@@ -1,2 +1,21 @@
-# 项目排除路径
-/backend/target/
+# Backend
+backend/target/
+backend/.classpath
+backend/.project
+backend/.settings/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# IDE
+.idea/
+.vscode/
+
+# Env & logs
+.env
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
