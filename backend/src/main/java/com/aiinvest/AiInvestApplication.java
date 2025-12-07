@@ -15,6 +15,7 @@ public class AiInvestApplication {
             Dotenv dotenv = Dotenv.configure().ignoreIfMissing().load();
             setIfAbsent("DIFY_API_KEY", dotenv.get("DIFY_API_KEY"));
             setIfAbsent("DIFY_BASE_URL", dotenv.get("DIFY_BASE_URL"));
+            setIfAbsent("DIFY_WORKFLOW_ID", dotenv.get("DIFY_WORKFLOW_ID"));
             setIfAbsent("MYSQL_URL", dotenv.get("MYSQL_URL"));
             setIfAbsent("MYSQL_USERNAME", dotenv.get("MYSQL_USERNAME"));
             setIfAbsent("MYSQL_PASSWORD", dotenv.get("MYSQL_PASSWORD"));

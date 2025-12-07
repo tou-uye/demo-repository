@@ -39,6 +39,15 @@ public class ReportController {
             m.put("status", r.getStatus());
             m.put("messageId", r.getMessageId());
             m.put("createdAt", r.getCreatedAt().toString());
+            m.put("planJson", r.getPlanJson());
+            m.put("analysisJson", r.getAnalysisJson());
+            m.put("positionsSnapshotJson", r.getPositionsSnapshotJson());
+            m.put("adjustmentsJson", r.getAdjustmentsJson());
+            m.put("riskNotes", r.getRiskNotes());
+            m.put("confidence", r.getConfidence());
+            m.put("sentiment", r.getSentiment());
+            m.put("impactStrength", r.getImpactStrength());
+            m.put("keyPoints", r.getKeyPoints());
             out.add(m);
         }
         return out;

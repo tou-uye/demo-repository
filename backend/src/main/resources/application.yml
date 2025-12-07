@@ -10,7 +10,8 @@ spring:
       ddl-auto: update
     open-in-view: false
 dify:
-  apiKey: ${DIFY_API_KEY:app-gquzPc2Cm25s8xn71y37rnol}
+  apiKey: ${DIFY_API_KEY:}
+  workflowId: ${DIFY_WORKFLOW_ID:}
   baseUrl: ${DIFY_BASE_URL:https://api.dify.ai/v1}
 retry:
   maxAttempts: ${RETRY_MAX_ATTEMPTS:3}

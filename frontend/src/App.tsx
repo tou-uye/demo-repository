@@ -1,10 +1,11 @@
 import { Layout, Menu } from 'antd'
-import { LaptopOutlined, DatabaseOutlined, FileTextOutlined, HomeOutlined } from '@ant-design/icons'
+import { LaptopOutlined, DatabaseOutlined, FileTextOutlined, HomeOutlined, OrderedListOutlined } from '@ant-design/icons'
 import { Link, Route, Routes } from 'react-router-dom'
 import Messages from './pages/Messages'
 import Positions from './pages/Positions'
 import Reports from './pages/Reports'
 import Overview from './pages/Overview'
+import Logs from './pages/Logs'
 
 export default function App() {
   return (
@@ -15,7 +16,8 @@ export default function App() {
           { key: 'overview', icon: <HomeOutlined />, label: <Link to="/">系统概览</Link> },
           { key: 'messages', icon: <LaptopOutlined />, label: <Link to="/messages">消息列表</Link> },
           { key: 'positions', icon: <DatabaseOutlined />, label: <Link to="/positions">持仓数据</Link> },
-          { key: 'reports', icon: <FileTextOutlined />, label: <Link to="/reports">建议报告</Link> }
+          { key: 'reports', icon: <FileTextOutlined />, label: <Link to="/reports">建议报告</Link> },
+          { key: 'logs', icon: <OrderedListOutlined />, label: <Link to="/logs">采集日志</Link> }
         ]} />
       </Layout.Sider>
       <Layout>
@@ -26,10 +28,10 @@ export default function App() {
             <Route path="/messages" element={<Messages />} />
             <Route path="/positions" element={<Positions />} />
             <Route path="/reports" element={<Reports />} />
+            <Route path="/logs" element={<Logs />} />
           </Routes>
         </Layout.Content>
       </Layout>
     </Layout>
   )
 }
-

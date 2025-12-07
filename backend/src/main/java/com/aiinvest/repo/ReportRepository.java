@@ -7,5 +7,5 @@ import java.util.List;
 public interface ReportRepository extends JpaRepository<Report, Long> {
     List<Report> findByStatusOrderByCreatedAtDesc(String status);
     long countByStatus(String status);
+    long countByMessageId(Long messageId);
 }
-
