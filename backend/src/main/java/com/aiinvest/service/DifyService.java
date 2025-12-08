@@ -4,6 +4,7 @@ import com.aiinvest.domain.Message;
 import com.aiinvest.domain.Report;
 import com.aiinvest.repo.MessageRepository;
 import com.aiinvest.repo.OperationLogRepository;
+import com.aiinvest.repo.PositionRepository;
 import com.aiinvest.repo.ReportRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
@@ -17,6 +18,7 @@ import org.springframework.web.client.RestTemplate;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Collections;
 
 @Service
 public class DifyService {
@@ -30,17 +32,20 @@ public class DifyService {
     private final MessageRepository messageRepository;
     private final OperationLogRepository operationLogRepository;
     private final ReportRepository reportRepository;
+    private final PositionRepository positionRepository;
     @Value("${retry.maxAttempts:3}")
     private int maxAttempts;
     @Value("${retry.delayMillis:2000}")
     private long delayMillis;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final java.util.concurrent.atomic.AtomicInteger invalidCount = new java.util.concurrent.atomic.AtomicInteger(0);
 
-    public DifyService(RestTemplate restTemplate, MessageRepository messageRepository, OperationLogRepository operationLogRepository, ReportRepository reportRepository) {
+    public DifyService(RestTemplate restTemplate, MessageRepository messageRepository, OperationLogRepository operationLogRepository, ReportRepository reportRepository, PositionRepository positionRepository) {
         this.restTemplate = restTemplate;
         this.messageRepository = messageRepository;
         this.operationLogRepository = operationLogRepository;
         this.reportRepository = reportRepository;
+        this.positionRepository = positionRepository;
     }
 
     @PostConstruct
@@ -99,6 +104,9 @@ public class DifyService {
         Map<String, Object> inputs = new java.util.HashMap<>();
         inputs.put("title", m.getTitle());
         inputs.put("symbol", m.getSymbol());
+        try {
+            inputs.put("positions", positionRepository.findAll());
+        } catch (Exception ignored) {}
         Map<String, Object> payload = new java.util.HashMap<>();
         payload.put("inputs", inputs);
         payload.put("response_mode", "blocking");
@@ -249,6 +257,7 @@ public class DifyService {
                             m.setSentiment("中性");
                             m.setSourceUrl("https://www.coingecko.com");
                             m.setCreatedAt(java.time.OffsetDateTime.now());
+                            m.setReadFlag(false);
                             messageRepository.save(m);
                             saved++;
                         }
@@ -270,11 +279,38 @@ public class DifyService {
                 m.setSentiment("中性");
                 m.setSourceUrl("https://www.binance.com");
                 m.setCreatedAt(java.time.OffsetDateTime.now());
+                m.setReadFlag(false);
                 messageRepository.save(m);
                 saved++;
             }
         } catch (Exception e) {
             log("FETCH", "ERROR", "binance: " + e.getMessage());
+        }
+        try {
+            // CoinGecko status updates
+            ResponseEntity<Map> resp = restTemplate.getForEntity("https://api.coingecko.com/api/v3/status_updates?per_page=3", Map.class);
+            Object updates = resp.getBody() != null ? resp.getBody().get("status_updates") : null;
+            if (updates instanceof List) {
+                for (Object u : (List) updates) {
+                    if (!(u instanceof Map)) continue;
+                    String desc = String.valueOf(((Map) u).getOrDefault("description", ""));
+                    String symbol = String.valueOf(((Map) u).getOrDefault("project", Collections.emptyMap()) instanceof Map ? ((Map)((Map) u).get("project")).getOrDefault("symbol", "") : "");
+                    if (desc.isEmpty()) continue;
+                    String title = "Update: " + desc;
+                    if (messageRepository.existsByTitle(title)) continue;
+                    Message m = new Message();
+                    m.setTitle(title);
+                    m.setSymbol(symbol);
+                    m.setSentiment("中性");
+                    m.setSourceUrl(String.valueOf(((Map) u).getOrDefault("article_link", "https://www.coingecko.com/en")));
+                    m.setCreatedAt(java.time.OffsetDateTime.now());
+                    m.setReadFlag(false);
+                    messageRepository.save(m);
+                    saved++;
+                }
+            }
+        } catch (Exception e) {
+            log("FETCH", "ERROR", "coingecko_status: " + e.getMessage());
         }
         if (saved == 0) {
             log("FETCH", "EMPTY", "no new external messages");
@@ -286,7 +322,33 @@ public class DifyService {
     private boolean isValidResult(WorkflowResult r) {
         if (isBlank(r.getSummary())) return false;
         boolean hasStructured = !isBlank(r.getPlanJson()) || !isBlank(r.getAnalysisJson()) || !isBlank(r.getPositionsSnapshotJson()) || !isBlank(r.getAdjustmentsJson());
-        return hasStructured;
+        if (!hasStructured) return false;
+        try {
+            if (!isBlank(r.getPlanJson())) {
+                objectMapper.readTree(r.getPlanJson());
+            }
+            if (!isBlank(r.getAnalysisJson())) {
+                objectMapper.readTree(r.getAnalysisJson());
+            }
+            invalidCount.set(0);
+        } catch (Exception e) {
+            int cnt = invalidCount.incrementAndGet();
+            log("WORKFLOW_OUTPUT", "INVALID_JSON", e.getMessage() + ", count=" + cnt);
+            if (cnt < 2) {
+                // 尝试简单标准化：去除首尾反引号/反斜杠
+                try {
+                    if (!isBlank(r.getPlanJson())) {
+                        String fixed = r.getPlanJson().replaceAll("`", "");
+                        objectMapper.readTree(fixed);
+                        r.setPlanJson(fixed);
+                        invalidCount.set(0);
+                        return true;
+                    }
+                } catch (Exception ignored) {}
+            }
+            return false;
+        }
+        return true;
     }
 
     private static class WorkflowResult {

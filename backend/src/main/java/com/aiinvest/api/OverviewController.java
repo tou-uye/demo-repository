@@ -19,10 +19,9 @@ public class OverviewController {
     @GetMapping
     public Map<String, Object> overview() {
         Map<String, Object> m = new HashMap<>();
-        m.put("unreadMessages", messageRepository.count());
+        m.put("unreadMessages", messageRepository.countByReadFlagFalse());
         m.put("pendingReports", reportRepository.countByStatus("PENDING"));
         m.put("totalAssetUsd", positionRepository.findAll().stream().map(p -> p.getAmountUsd()).reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add));
         return m;
     }
 }
-

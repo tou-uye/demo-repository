@@ -54,8 +54,8 @@ export default function Messages() {
             value={sentimentFilter}
             onChange={setSentimentFilter}
             options={[
-              { value: '看多', label: '看多' },
-              { value: '看空', label: '看空' },
+              { value: '利好', label: '利好' },
+              { value: '利空', label: '利空' },
               { value: '中性', label: '中性' }
             ]}
           />
@@ -73,7 +73,7 @@ export default function Messages() {
               description={item.symbol}
             />
             {item.sentiment && (
-              <Tag color={item.sentiment === '看多' ? 'green' : item.sentiment === '看空' ? 'red' : 'default'}>
+              <Tag color={item.sentiment === '利好' ? 'green' : item.sentiment === '利空' ? 'red' : 'default'}>
                 {item.sentiment}
               </Tag>
             )}

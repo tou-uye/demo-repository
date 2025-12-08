@@ -4,16 +4,31 @@ import { fetchJson } from '../utils/api'
 
 type Position = { id?: number; symbol: string; percent: number; amountUsd: number; createdAt?: string }
 type HistoryItem = Position
+type SnapshotPoint = { date: string; totalUsd: number }
+type SnapshotSeries = { symbol: string; points: SnapshotPoint[] }
+type SnapshotResp = { totals: SnapshotPoint[]; series: SnapshotSeries[] }
 
 const colors = ['#1677ff', '#52c41a', '#faad14', '#ff4d4f', '#13c2c2', '#722ed1']
 
 export default function Positions() {
   const [current, setCurrent] = useState<Position[]>([])
   const [history, setHistory] = useState<HistoryItem[]>([])
+  const [snapshots, setSnapshots] = useState<SnapshotPoint[]>([])
+  const [series, setSeries] = useState<SnapshotSeries[]>([])
+  const [activeSymbol, setActiveSymbol] = useState<string>('TOTAL')
 
   useEffect(() => {
-    fetchJson<Position[]>('/api/positions/current').then(r => setCurrent(r ?? []))
-    fetchJson<HistoryItem[]>('/api/positions/history').then(r => setHistory(r ?? []))
+    fetchJson<Position[]>('/api/positions/current').then(r => setCurrent(Array.isArray(r) ? r : []))
+    fetchJson<HistoryItem[]>('/api/positions/history').then(r => setHistory(Array.isArray(r) ? r : []))
+    fetchJson<SnapshotResp>('/api/positions/snapshots?days=7').then(r => {
+      if (r && (r as any).totals) {
+        setSnapshots(r.totals ?? [])
+        setSeries(r.series ?? [])
+      } else {
+        setSnapshots([])
+        setSeries([])
+      }
+    })
   }, [])
 
   const total = useMemo(() => current.reduce((s, i) => s + Number(i.amountUsd || 0), 0), [current])
@@ -32,26 +47,18 @@ export default function Positions() {
   }, [current, total])
 
   const groupedHistory = useMemo(() => {
-    const grouped: Record<string, number> = {}
-    for (const h of history) {
-      if (!h.createdAt) continue
-      const day = h.createdAt.split('T')[0]
-      grouped[day] = (grouped[day] || 0) + Number(h.amountUsd || 0)
-    }
-    return Object.entries(grouped).sort((a, b) => a[0].localeCompare(b[0]))
-  }, [history])
+    return snapshots.map(s => [s.date, Number(s.totalUsd || 0)]) as [string, number][]
+  }, [snapshots])
+
+  const activeSeries = useMemo(() => {
+    if (activeSymbol === 'TOTAL') return groupedHistory
+    const found = series.find(s => s.symbol === activeSymbol)
+    if (!found) return []
+    return found.points.map(p => [p.date, Number(p.totalUsd || 0)]) as [string, number][]
+  }, [activeSymbol, series, groupedHistory])
 
   const exportCsv = () => {
-    const header = 'symbol,percent,amountUsd,createdAt'
-    const rows = history.map(h => [h.symbol, h.percent, h.amountUsd, h.createdAt ?? ''].join(','))
-    const csv = [header, ...rows].join('\n')
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'positions_history.csv'
-    a.click()
-    URL.revokeObjectURL(url)
+    window.open('/api/positions/export', '_blank')
   }
 
   return (
@@ -95,8 +102,17 @@ export default function Positions() {
         />
       </Card>
 
-      <Card title="近7日持仓总额趋势">
-        <TrendLine data={groupedHistory.slice(-7)} />
+      <Card title="近7日持仓趋势" extra={
+        <Space size={8} wrap>
+          <Button type={activeSymbol === 'TOTAL' ? 'primary' : 'default'} onClick={() => setActiveSymbol('TOTAL')}>总额</Button>
+          {series.map(s => (
+            <Button key={s.symbol} type={activeSymbol === s.symbol ? 'primary' : 'default'} onClick={() => setActiveSymbol(s.symbol)}>
+              {s.symbol}
+            </Button>
+          ))}
+        </Space>
+      }>
+        <TrendLine data={activeSeries} />
       </Card>
     </Space>
   )

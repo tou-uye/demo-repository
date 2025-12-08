@@ -14,10 +14,14 @@ export default function Reports() {
   const [messages, setMessages] = useState<Msg[]>([])
   const [rejecting, setRejecting] = useState<{ id: number; open: boolean }>({ id: -1, open: false })
   const [reason, setReason] = useState('')
+  const [status, setStatus] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED'>('PENDING')
 
-  const load = () => fetchJson<Report[]>('/api/reports/pending').then(r => setData(Array.isArray(r) ? r : []))
+  const load = () => {
+    // 统一取全量，前端再过滤，避免后端 query 未命中导致空列表
+    fetchJson<Report[]>('/api/reports?status=ALL').then(r => setData(Array.isArray(r) ? r : []))
+  }
 
-  useEffect(() => { load(); fetchJson<Msg[]>('/api/messages').then(r => setMessages(r ?? [])) }, [])
+  useEffect(() => { load(); fetchJson<Msg[]>('/api/messages').then(r => setMessages(r ?? [])) }, [status])
 
   const approve = (id?: number) => id != null && fetch(`/api/review/approve/${id}`, { method: 'POST' }).then(() => { antdMessage.success('已通过'); load() })
 
@@ -42,11 +46,22 @@ export default function Reports() {
     return map
   }, [messages])
 
-  const safeData = Array.isArray(data) ? data : []
+  const safeData = useMemo(() => {
+    const list = Array.isArray(data) ? data : []
+    if (status === 'ALL') return list
+    return list.filter(item => (item.status ?? '').toUpperCase() === status)
+  }, [data, status])
 
   return (
     <>
-      <Card title="建议报告">
+      <Card title="建议报告" extra={
+        <Space size={8}>
+          <Button type={status === 'PENDING' ? 'primary' : 'default'} onClick={() => setStatus('PENDING')}>待审核</Button>
+          <Button type={status === 'APPROVED' ? 'primary' : 'default'} onClick={() => setStatus('APPROVED')}>已通过</Button>
+          <Button type={status === 'REJECTED' ? 'primary' : 'default'} onClick={() => setStatus('REJECTED')}>已驳回</Button>
+          <Button type={status === 'ALL' ? 'primary' : 'default'} onClick={() => setStatus('ALL')}>全部</Button>
+        </Space>
+      }>
         <List
           dataSource={safeData}
           rowKey={(item, idx) => String(item?.id ?? idx)}
@@ -59,8 +74,8 @@ export default function Reports() {
             return (
               <List.Item
                 actions={[
-                  <Button key="approve" type="primary" onClick={() => approve(item?.id)}>通过</Button>,
-                  <Button key="reject" onClick={() => reject(item?.id)}>驳回</Button>
+                  <Button key="approve" type="primary" disabled={item.status !== 'PENDING'} onClick={() => approve(item?.id)}>通过</Button>,
+                  <Button key="reject" disabled={item.status !== 'PENDING'} onClick={() => reject(item?.id)}>驳回</Button>
                 ]}
               >
                   <List.Item.Meta
@@ -74,9 +89,11 @@ export default function Reports() {
                           </Typography.Text>
                         )}
                         <Space size={8} wrap>
-                          {item.sentiment && <Tag color={item.sentiment === '看多' ? 'green' : item.sentiment === '看空' ? 'red' : 'default'}>情感 {item.sentiment}</Tag>}
+                          <Tag color={item.status === 'PENDING' ? 'blue' : item.status === 'APPROVED' ? 'green' : 'red'}>状态 {item.status}</Tag>
+                          {item.sentiment && <Tag color={item.sentiment === '利好' ? 'green' : item.sentiment === '利空' ? 'red' : 'default'}>情感 {item.sentiment}</Tag>}
                           {item.impactStrength && <Tag color="blue">影响 {item.impactStrength}</Tag>}
                           {item.confidence && <Tag color="purple">信心 {item.confidence}</Tag>}
+                          {item.reviewReason && item.status === 'REJECTED' && <Tag color="volcano">驳回原因：{item.reviewReason}</Tag>}
                         </Space>
                         {(plan || pos || adj || analysis || item.riskNotes || item.keyPoints) && (
                           <Collapse ghost size="small" items={[

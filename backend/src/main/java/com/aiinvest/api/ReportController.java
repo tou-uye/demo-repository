@@ -52,4 +52,37 @@ public class ReportController {
         }
         return out;
     }
+
+    @GetMapping
+    public List<Map<String, Object>> listAll(@RequestParam(value = "status", required = false) String status) {
+        List<Report> list;
+        if (status == null || status.equalsIgnoreCase("ALL")) {
+            list = repo.findAll();
+        } else {
+            list = repo.findByStatusOrderByCreatedAtDesc(status.toUpperCase());
+        }
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Report r : list) {
+            Map<String, Object> m = new HashMap<>();
+            m.put("id", r.getId());
+            m.put("summary", r.getSummary());
+            m.put("status", r.getStatus());
+            m.put("messageId", r.getMessageId());
+            m.put("createdAt", r.getCreatedAt().toString());
+            m.put("reviewedAt", r.getReviewedAt());
+            m.put("reviewer", r.getReviewer());
+            m.put("reviewReason", r.getReviewReason());
+            m.put("planJson", r.getPlanJson());
+            m.put("analysisJson", r.getAnalysisJson());
+            m.put("positionsSnapshotJson", r.getPositionsSnapshotJson());
+            m.put("adjustmentsJson", r.getAdjustmentsJson());
+            m.put("riskNotes", r.getRiskNotes());
+            m.put("confidence", r.getConfidence());
+            m.put("sentiment", r.getSentiment());
+            m.put("impactStrength", r.getImpactStrength());
+            m.put("keyPoints", r.getKeyPoints());
+            out.add(m);
+        }
+        return out;
+    }
 }

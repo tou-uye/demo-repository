@@ -15,6 +15,8 @@ public class Message {
     private String sourceUrl;
     @Column(nullable = false)
     private OffsetDateTime createdAt;
+    @Column(nullable = false)
+    private boolean readFlag = false;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -28,5 +30,6 @@ public class Message {
     public void setSourceUrl(String sourceUrl) { this.sourceUrl = sourceUrl; }
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
+    public boolean isReadFlag() { return readFlag; }
+    public void setReadFlag(boolean readFlag) { this.readFlag = readFlag; }
 }
-

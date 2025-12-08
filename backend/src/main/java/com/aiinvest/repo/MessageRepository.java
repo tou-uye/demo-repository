@@ -8,4 +8,5 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     List<Message> findAllByOrderByCreatedAtDesc();
     long countBySentiment(String sentiment);
     boolean existsByTitle(String title);
+    long countByReadFlagFalse();
 }

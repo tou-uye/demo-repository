@@ -23,8 +23,13 @@ public class MessageController {
             m.setTitle(String.valueOf(item.getOrDefault("title", "")));
             m.setSymbol(String.valueOf(item.getOrDefault("symbol", "")));
             m.setSentiment(String.valueOf(item.getOrDefault("sentiment", "")));
-            m.setSourceUrl(String.valueOf(item.getOrDefault("sourceUrl", "")));
+            String source = String.valueOf(item.getOrDefault("sourceUrl", ""));
+            if (source == null || source.trim().isEmpty() || "NONE".equalsIgnoreCase(source.trim())) {
+                source = "https://www.binance.com/en/support/announcement";
+            }
+            m.setSourceUrl(source);
             m.setCreatedAt(java.time.OffsetDateTime.now());
+            m.setReadFlag(false);
             messageRepository.save(m);
             saved++;
         }
@@ -43,6 +48,7 @@ public class MessageController {
             row.put("sentiment", m.getSentiment());
             row.put("sourceUrl", m.getSourceUrl());
             row.put("createdAt", m.getCreatedAt().toString());
+            row.put("read", m.isReadFlag());
             out.add(row);
         }
         return out;
@@ -52,5 +58,16 @@ public class MessageController {
     public ResponseEntity<?> collect() {
         difyService.collectAndAnalyze();
         return ResponseEntity.accepted().build();
+    }
+
+    @PostMapping("/read")
+    public ResponseEntity<?> markRead(@RequestBody List<Long> ids) {
+        if (ids == null || ids.isEmpty()) return ResponseEntity.badRequest().body("ids required");
+        List<Message> list = messageRepository.findAllById(ids);
+        for (Message m : list) {
+            m.setReadFlag(true);
+        }
+        messageRepository.saveAll(list);
+        return ResponseEntity.ok(Collections.singletonMap("updated", list.size()));
     }
 }
