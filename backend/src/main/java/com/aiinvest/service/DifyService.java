@@ -26,6 +26,14 @@ public class DifyService {
     private String apiKey;
     @Value("${dify.workflowId:}")
     private String workflowId;
+    @Value("${dify.fixWorkflowId:}")
+    private String fixWorkflowId;
+    @Value("${dify.invalidThreshold:3}")
+    private int invalidThreshold;
+    @Value("${dify.firstWorkflowId:}")
+    private String firstWorkflowId;
+    @Value("${dify.secondWorkflowId:}")
+    private String secondWorkflowId;
     @Value("${dify.baseUrl:https://api.dify.ai/v1}")
     private String baseUrl;
     private final RestTemplate restTemplate;
@@ -59,7 +67,6 @@ public class DifyService {
         if (isBlank(apiKey) || isBlank(workflowId)) {
             return;
         }
-        // 自动采集外部源
         collectExternalSources();
 
         int processed = 0;
@@ -67,11 +74,20 @@ public class DifyService {
         for (Message m : messages) {
             if (m.getId() == null) continue;
             if (reportRepository.countByMessageId(m.getId()) > 0) continue;
-            WorkflowResult result = callDifyWorkflow(m);
-            if (result.getSentiment() != null) {
-                m.setSentiment(result.getSentiment());
-                messageRepository.save(m);
+            // 首轮分析
+            WorkflowResult first = runFirstAnalysis(m);
+            if (first.getSentiment() != null) {
+                m.setSentiment(first.getSentiment());
             }
+            if (!isBlank(first.getTargetSymbol())) {
+                m.setSymbol(first.getTargetSymbol());
+            }
+            if (!isBlank(first.getSourceUrl())) {
+                m.setSourceUrl(first.getSourceUrl());
+            }
+            messageRepository.save(m);
+            // 二次分析
+            WorkflowResult result = runSecondAnalysis(m, first);
             if (!isValidResult(result)) {
                 log("WORKFLOW_OUTPUT", "INVALID", "messageId=" + m.getId());
                 continue;
@@ -96,28 +112,47 @@ public class DifyService {
         logCollect(processed);
     }
 
-    private WorkflowResult callDifyWorkflow(Message m) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth(apiKey);
-
+    private WorkflowResult runFirstAnalysis(Message m) {
         Map<String, Object> inputs = new java.util.HashMap<>();
         inputs.put("title", m.getTitle());
         inputs.put("symbol", m.getSymbol());
+        String wf = !isBlank(firstWorkflowId) ? firstWorkflowId : workflowId;
+        WorkflowResult result = callWorkflow(wf, inputs, "first-pass");
+        if (result.getSummary() == null) {
+            result.setSummary(m.getTitle());
+        }
+        return result;
+    }
+
+    private WorkflowResult runSecondAnalysis(Message m, WorkflowResult first) {
+        Map<String, Object> inputs = new java.util.HashMap<>();
+        inputs.put("title", m.getTitle());
+        inputs.put("symbol", m.getSymbol());
+        if (!isBlank(first.getSentiment())) inputs.put("sentiment", first.getSentiment());
+        if (!isBlank(first.getAnalysisJson())) inputs.put("analysis", first.getAnalysisJson());
+        if (!isBlank(first.getSummary())) inputs.put("analysis_text", first.getSummary());
         try {
             inputs.put("positions", positionRepository.findAll());
         } catch (Exception ignored) {}
+        String wf = !isBlank(secondWorkflowId) ? secondWorkflowId : workflowId;
+        return callWorkflow(wf, inputs, "second-pass");
+    }
+
+    private WorkflowResult callWorkflow(String wfId, Map<String, Object> inputs, String userLabel) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(apiKey);
         Map<String, Object> payload = new java.util.HashMap<>();
         payload.put("inputs", inputs);
         payload.put("response_mode", "blocking");
-        payload.put("user", "system-cron");
+        payload.put("user", "system-" + userLabel);
 
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(payload, headers);
         int attempts = 0;
         while (attempts < maxAttempts) {
             attempts++;
             try {
-                ResponseEntity<Map> resp = restTemplate.postForEntity(baseUrl + "/workflows/" + workflowId + "/run", entity, Map.class);
+                ResponseEntity<Map> resp = restTemplate.postForEntity(baseUrl + "/workflows/" + wfId + "/run", entity, Map.class);
                 Map body = resp.getBody();
                 if (body != null) {
                     Object data = body.get("data");
@@ -136,9 +171,43 @@ public class DifyService {
                 try { Thread.sleep(delayMillis); } catch (InterruptedException ignored) {}
             }
         }
+        // 兜底尝试：调用修复工作流或加请求标记重试一次
+        WorkflowResult fix = tryFixWorkflow(inputs, userLabel);
+        if (fix != null) {
+            return fix;
+        }
         WorkflowResult fallback = new WorkflowResult();
-        fallback.setSummary(m.getTitle());
+        fallback.setSummary(String.valueOf(inputs.getOrDefault("title", "")));
         return fallback;
+    }
+
+    private WorkflowResult tryFixWorkflow(Map<String, Object> inputs, String userLabel) {
+        if (isBlank(fixWorkflowId) && isBlank(secondWorkflowId)) return null;
+        String wf = !isBlank(fixWorkflowId) ? fixWorkflowId : secondWorkflowId;
+        Map<String, Object> fixedInputs = new java.util.HashMap<>(inputs);
+        fixedInputs.put("request_fix", true);
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.setBearerAuth(apiKey);
+            Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("inputs", fixedInputs);
+            payload.put("response_mode", "blocking");
+            payload.put("user", "system-fix-" + userLabel);
+            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(payload, headers);
+            ResponseEntity<Map> resp = restTemplate.postForEntity(baseUrl + "/workflows/" + wf + "/run", entity, Map.class);
+            Map body = resp.getBody();
+            Object data = body != null ? body.get("data") : null;
+            Object outputs = data instanceof Map ? ((Map) data).get("outputs") : null;
+            WorkflowResult result = parseOutputs(outputs);
+            if (!isBlank(result.getSummary()) || !isBlank(result.getPlanJson()) || !isBlank(result.getAnalysisJson())) {
+                log("WORKFLOW_OUTPUT", "FIXED", "used fix workflow");
+                return result;
+            }
+        } catch (Exception e) {
+            log("WORKFLOW_OUTPUT", "FIX_FAILED", e.getMessage());
+        }
+        return null;
     }
 
     private String stringify(Object obj) {
@@ -167,6 +236,8 @@ public class DifyService {
                 Object plan = outMap.get("plan");
                 Object analysis = outMap.get("analysis");
                 Object sentiment = outMap.get("sentiment");
+                Object targetSymbol = outMap.get("target_symbol");
+                Object sourceUrl = outMap.get("source_url");
                 Object positionsSnapshot = outMap.get("positions_snapshot");
                 Object adjustments = outMap.get("adjustments");
                 Object riskNotes = outMap.get("risk_notes");
@@ -176,8 +247,14 @@ public class DifyService {
                 if (analysis instanceof Map && sentiment == null) {
                     Object s = ((Map) analysis).get("sentiment");
                     if (s != null) sentiment = s;
+                    Object ts = ((Map) analysis).get("target_symbol");
+                    if (ts != null) targetSymbol = ts;
+                    Object su = ((Map) analysis).get("source_url");
+                    if (su != null) sourceUrl = su;
                 }
                 if (sentiment != null) result.setSentiment(String.valueOf(sentiment));
+                if (targetSymbol != null) result.setTargetSymbol(String.valueOf(targetSymbol));
+                if (sourceUrl != null) result.setSourceUrl(String.valueOf(sourceUrl));
                 if (impactStrength != null) result.setImpactStrength(String.valueOf(impactStrength));
                 if (keyPoints != null) result.setKeyPoints(stringify(keyPoints));
                 if (positionsSnapshot != null) result.setPositionsSnapshotJson(toJson(positionsSnapshot));
@@ -239,6 +316,7 @@ public class DifyService {
 
     private void collectExternalSources() {
         int saved = 0;
+        int failed = 0;
         try {
             // CoinGecko trending
             ResponseEntity<Map> resp = restTemplate.getForEntity("https://api.coingecko.com/api/v3/search/trending", Map.class);
@@ -266,6 +344,7 @@ public class DifyService {
             }
         } catch (Exception e) {
             log("FETCH", "ERROR", "coingecko: " + e.getMessage());
+            failed++;
         }
         try {
             // Binance price
@@ -285,6 +364,7 @@ public class DifyService {
             }
         } catch (Exception e) {
             log("FETCH", "ERROR", "binance: " + e.getMessage());
+            failed++;
         }
         try {
             // CoinGecko status updates
@@ -311,11 +391,43 @@ public class DifyService {
             }
         } catch (Exception e) {
             log("FETCH", "ERROR", "coingecko_status: " + e.getMessage());
+            failed++;
+        }
+        try {
+            // CoinGecko news feed (task requires ≥2 sources; news as third)
+            ResponseEntity<Map> resp = restTemplate.getForEntity("https://api.coingecko.com/api/v3/news", Map.class);
+            Object news = resp.getBody() != null ? resp.getBody().get("data") : null;
+            if (news instanceof List) {
+                for (Object n : (List) news) {
+                    if (!(n instanceof Map)) continue;
+                    Map row = (Map) n;
+                    String title = String.valueOf(row.getOrDefault("title", ""));
+                    if (title.isEmpty()) continue;
+                    String url = String.valueOf(row.getOrDefault("url", row.getOrDefault("news_url", "https://www.coingecko.com/en/news")));
+                    if (messageRepository.existsByTitle(title)) continue;
+                    String symbol = String.valueOf(((Map) row.getOrDefault("project", Collections.emptyMap())) instanceof Map ? ((Map)((Map) row.get("project"))).getOrDefault("symbol", "") : "");
+                    Message m = new Message();
+                    m.setTitle(title);
+                    m.setSymbol(symbol);
+                    m.setSentiment("中性");
+                    m.setSourceUrl(url);
+                    m.setCreatedAt(java.time.OffsetDateTime.now());
+                    m.setReadFlag(false);
+                    messageRepository.save(m);
+                    saved++;
+                }
+            }
+        } catch (Exception e) {
+            log("FETCH", "ERROR", "coingecko_news: " + e.getMessage());
+            failed++;
         }
         if (saved == 0) {
             log("FETCH", "EMPTY", "no new external messages");
         } else {
             log("FETCH", "SUCCESS", "new messages=" + saved);
+        }
+        if (failed >= 3) {
+            log("FETCH", "ALERT", "fetch errors count=" + failed + ", check external sources or quota");
         }
     }
 
@@ -330,22 +442,27 @@ public class DifyService {
             if (!isBlank(r.getAnalysisJson())) {
                 objectMapper.readTree(r.getAnalysisJson());
             }
+            if (isBlank(r.getPositionsSnapshotJson()) && isBlank(r.getAdjustmentsJson())) {
+                return false;
+            }
             invalidCount.set(0);
         } catch (Exception e) {
             int cnt = invalidCount.incrementAndGet();
             log("WORKFLOW_OUTPUT", "INVALID_JSON", e.getMessage() + ", count=" + cnt);
-            if (cnt < 2) {
-                // 尝试简单标准化：去除首尾反引号/反斜杠
-                try {
-                    if (!isBlank(r.getPlanJson())) {
-                        String fixed = r.getPlanJson().replaceAll("`", "");
-                        objectMapper.readTree(fixed);
-                        r.setPlanJson(fixed);
-                        invalidCount.set(0);
-                        return true;
-                    }
-                } catch (Exception ignored) {}
+            if (cnt >= invalidThreshold) {
+                log("WORKFLOW_OUTPUT", "ALERT", "invalid outputs >= " + invalidThreshold + ", pause generation for manual check");
+                return false;
             }
+            // 尝试简单标准化：去除反引号
+            try {
+                if (!isBlank(r.getPlanJson())) {
+                    String fixed = r.getPlanJson().replaceAll("`", "");
+                    objectMapper.readTree(fixed);
+                    r.setPlanJson(fixed);
+                    invalidCount.set(0);
+                    return true;
+                }
+            } catch (Exception ignored) {}
             return false;
         }
         return true;
@@ -362,6 +479,8 @@ public class DifyService {
         private String confidence;
         private String impactStrength;
         private String keyPoints;
+        private String targetSymbol;
+        private String sourceUrl;
 
         public String getSummary() { return summary; }
         public void setSummary(String summary) { this.summary = summary; }
@@ -383,5 +502,9 @@ public class DifyService {
         public void setImpactStrength(String impactStrength) { this.impactStrength = impactStrength; }
         public String getKeyPoints() { return keyPoints; }
         public void setKeyPoints(String keyPoints) { this.keyPoints = keyPoints; }
+        public String getTargetSymbol() { return targetSymbol; }
+        public void setTargetSymbol(String targetSymbol) { this.targetSymbol = targetSymbol; }
+        public String getSourceUrl() { return sourceUrl; }
+        public void setSourceUrl(String sourceUrl) { this.sourceUrl = sourceUrl; }
     }
 }

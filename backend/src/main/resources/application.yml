@@ -12,6 +12,8 @@ spring:
 dify:
   apiKey: ${DIFY_API_KEY:}
   workflowId: ${DIFY_WORKFLOW_ID:}
+  fixWorkflowId: ${DIFY_FIX_WORKFLOW_ID:}
+  invalidThreshold: ${DIFY_INVALID_THRESHOLD:3}
   baseUrl: ${DIFY_BASE_URL:https://api.dify.ai/v1}
 retry:
   maxAttempts: ${RETRY_MAX_ATTEMPTS:3}

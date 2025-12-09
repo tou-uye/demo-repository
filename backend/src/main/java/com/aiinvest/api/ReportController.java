@@ -6,11 +6,13 @@ import java.util.*;
 import java.util.Collections;
 import com.aiinvest.domain.Report;
 import com.aiinvest.repo.ReportRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 @RestController
 @RequestMapping("/api/reports")
 public class ReportController {
     private final ReportRepository repo;
+    private final ObjectMapper objectMapper = new ObjectMapper();
     public ReportController(ReportRepository repo) { this.repo = repo; }
     @PostMapping("/generate")
     public Map<String, Object> generate(@RequestBody Map<String, Object> input) {
@@ -19,6 +21,33 @@ public class ReportController {
         r.setStatus("PENDING");
         Object mid = input.get("messageId");
         if (mid != null) r.setMessageId(Long.valueOf(String.valueOf(mid)));
+        Object plan = input.get("plan");
+        Object analysis = input.get("analysis");
+        if (plan != null) {
+            try { r.setPlanJson(objectMapper.writeValueAsString(plan)); } catch (Exception ignored) {}
+            if (plan instanceof Map) {
+                Object ps = ((Map) plan).get("positions_snapshot");
+                Object adj = ((Map) plan).get("adjustments");
+                Object risk = ((Map) plan).get("risk_notes");
+                Object conf = ((Map) plan).get("confidence");
+                Object senti = ((Map) plan).get("sentiment");
+                Object impact = ((Map) plan).get("impact_strength");
+                Object kp = ((Map) plan).get("key_points");
+                if (ps != null) try { r.setPositionsSnapshotJson(objectMapper.writeValueAsString(ps)); } catch (Exception ignored) {}
+                if (adj != null) try { r.setAdjustmentsJson(objectMapper.writeValueAsString(adj)); } catch (Exception ignored) {}
+                if (risk != null) r.setRiskNotes(String.valueOf(risk));
+                if (conf != null) r.setConfidence(String.valueOf(conf));
+                if (senti != null) r.setSentiment(String.valueOf(senti));
+                if (impact != null) r.setImpactStrength(String.valueOf(impact));
+                if (kp != null) r.setKeyPoints(String.valueOf(kp));
+            }
+        }
+        if (analysis != null) {
+            try { r.setAnalysisJson(objectMapper.writeValueAsString(analysis)); } catch (Exception ignored) {}
+            if (r.getSummary() == null || r.getSummary().isBlank()) {
+                r.setSummary(String.valueOf(analysis));
+            }
+        }
         r.setCreatedAt(java.time.OffsetDateTime.now());
         repo.save(r);
         Map<String, Object> m = new HashMap<>();

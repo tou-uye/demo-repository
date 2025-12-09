@@ -17,11 +17,6 @@ public class ScheduleService {
         this.positionSnapshotRepository = positionSnapshotRepository;
     }
 
-    @Scheduled(cron = "0 0 8 * * ?")
-    public void daily() {
-        difyService.collectAndAnalyze();
-    }
-
     @Scheduled(cron = "0 5 8 * * ?")
     public void snapshotPositions() {
         java.time.LocalDate today = java.time.LocalDate.now();

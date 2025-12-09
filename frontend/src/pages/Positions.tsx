@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { fetchJson } from '../utils/api'
 
 type Position = { id?: number; symbol: string; percent: number; amountUsd: number; createdAt?: string }
-type HistoryItem = Position
 type SnapshotPoint = { date: string; totalUsd: number }
 type SnapshotSeries = { symbol: string; points: SnapshotPoint[] }
 type SnapshotResp = { totals: SnapshotPoint[]; series: SnapshotSeries[] }
@@ -12,14 +11,12 @@ const colors = ['#1677ff', '#52c41a', '#faad14', '#ff4d4f', '#13c2c2', '#722ed1'
 
 export default function Positions() {
   const [current, setCurrent] = useState<Position[]>([])
-  const [history, setHistory] = useState<HistoryItem[]>([])
   const [snapshots, setSnapshots] = useState<SnapshotPoint[]>([])
   const [series, setSeries] = useState<SnapshotSeries[]>([])
   const [activeSymbol, setActiveSymbol] = useState<string>('TOTAL')
 
   useEffect(() => {
     fetchJson<Position[]>('/api/positions/current').then(r => setCurrent(Array.isArray(r) ? r : []))
-    fetchJson<HistoryItem[]>('/api/positions/history').then(r => setHistory(Array.isArray(r) ? r : []))
     fetchJson<SnapshotResp>('/api/positions/snapshots?days=7').then(r => {
       if (r && (r as any).totals) {
         setSnapshots(r.totals ?? [])
@@ -65,7 +62,7 @@ export default function Positions() {
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
       <Card
         title="当前持仓"
-        extra={<Button onClick={exportCsv}>导出历史 CSV</Button>}
+        extra={<Button onClick={exportCsv}>导出 Excel</Button>}
       >
         <Space align="start" size="large" style={{ width: '100%', flexWrap: 'wrap' }}>
           <div style={{ width: 220, height: 220, borderRadius: '50%', background: pieStyle || '#f5f5f5', position: 'relative', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
@@ -133,9 +130,9 @@ function TrendLine({ data }: { data: [string, number][] }) {
   return (
     <svg width="100%" viewBox={`0 0 ${width} ${height}`}>
       <polyline fill="none" stroke="#1677ff" strokeWidth="2" points={points} />
-      {data.map(([label, v], idx) => {
+      {data.map(([label], idx) => {
         const x = (idx / Math.max(data.length - 1, 1)) * (width - padding * 2) + padding
-        const y = height - padding - ((v - minVal) / Math.max(maxVal - minVal || 1, 1)) * (height - padding * 2)
+        const y = height - padding - ((data[idx][1] - minVal) / Math.max(maxVal - minVal || 1, 1)) * (height - padding * 2)
         return (
           <g key={label}>
             <circle cx={x} cy={y} r={3} fill="#1677ff" />

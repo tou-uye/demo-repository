@@ -15,12 +15,16 @@ public class Report {
     private Long messageId;
     @Column(nullable = false)
     private OffsetDateTime createdAt;
+    @Column(columnDefinition = "LONGTEXT")
     private String planJson;
     private String reviewReason;
     private String reviewer;
     private OffsetDateTime reviewedAt;
+    @Column(columnDefinition = "LONGTEXT")
     private String analysisJson;
+    @Column(columnDefinition = "LONGTEXT")
     private String positionsSnapshotJson;
+    @Column(columnDefinition = "LONGTEXT")
     private String adjustmentsJson;
     private String riskNotes;
     private String confidence;
