@@ -5,23 +5,25 @@ import org.springframework.stereotype.Service;
 import com.aiinvest.repo.PositionRepository;
 import com.aiinvest.repo.PositionSnapshotRepository;
 import com.aiinvest.domain.PositionSnapshot;
+import com.aiinvest.service.PositionBatchService;
 
 @Service
 public class ScheduleService {
     private final DifyService difyService;
-    private final PositionRepository positionRepository;
     private final PositionSnapshotRepository positionSnapshotRepository;
-    public ScheduleService(DifyService difyService, PositionRepository positionRepository, PositionSnapshotRepository positionSnapshotRepository) {
+    private final PositionBatchService positionBatchService;
+    public ScheduleService(DifyService difyService, PositionRepository positionRepository, PositionSnapshotRepository positionSnapshotRepository, PositionBatchService positionBatchService) {
         this.difyService = difyService;
-        this.positionRepository = positionRepository;
         this.positionSnapshotRepository = positionSnapshotRepository;
+        this.positionBatchService = positionBatchService;
     }
 
-    @Scheduled(cron = "0 5 8 * * ?")
+    // 默认每天 08:05 生成快照，可通过 snapshot.cron 覆盖
+    @Scheduled(cron = "${snapshot.cron:0 5 8 * * ?}")
     public void snapshotPositions() {
         java.time.LocalDate today = java.time.LocalDate.now();
         positionSnapshotRepository.deleteAll(positionSnapshotRepository.findBySnapshotDateBetweenOrderBySnapshotDate(today, today));
-        positionRepository.findAll().forEach(p -> {
+        positionBatchService.currentPositions().forEach(p -> {
             PositionSnapshot s = new PositionSnapshot();
             s.setSnapshotDate(today);
             s.setSymbol(p.getSymbol());

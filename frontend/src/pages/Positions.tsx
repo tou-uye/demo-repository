@@ -1,4 +1,4 @@
-import { Card, Table, Button, Space, Typography, Tag } from 'antd'
+import { Card, Table, Button, Space, Typography, Tag, Select } from 'antd'
 import { useEffect, useMemo, useState } from 'react'
 import { fetchJson } from '../utils/api'
 
@@ -11,12 +11,15 @@ const colors = ['#1677ff', '#52c41a', '#faad14', '#ff4d4f', '#13c2c2', '#722ed1'
 
 export default function Positions() {
   const [current, setCurrent] = useState<Position[]>([])
+  const [history, setHistory] = useState<Position[]>([])
+  const [activeBatch, setActiveBatch] = useState<string | undefined>(undefined)
   const [snapshots, setSnapshots] = useState<SnapshotPoint[]>([])
   const [series, setSeries] = useState<SnapshotSeries[]>([])
   const [activeSymbol, setActiveSymbol] = useState<string>('TOTAL')
 
   useEffect(() => {
     fetchJson<Position[]>('/api/positions/current').then(r => setCurrent(Array.isArray(r) ? r : []))
+    fetchJson<Position[]>('/api/positions/history').then(r => setHistory(Array.isArray(r) ? r : []))
     fetchJson<SnapshotResp>('/api/positions/snapshots?days=7').then(r => {
       if (r && (r as any).totals) {
         setSnapshots(r.totals ?? [])
@@ -29,6 +32,7 @@ export default function Positions() {
   }, [])
 
   const total = useMemo(() => current.reduce((s, i) => s + Number(i.amountUsd || 0), 0), [current])
+  const currentBatchTime = useMemo(() => current.find(p => p.createdAt)?.createdAt, [current])
 
   const pieStyle = useMemo(() => {
     if (!current.length || total <= 0) return ''
@@ -58,12 +62,55 @@ export default function Positions() {
     window.open('/api/positions/export', '_blank')
   }
 
+  const historyBatches = useMemo(() => {
+    const buckets: Record<string, Position[]> = {}
+    ;(history ?? []).forEach(p => {
+      const t = p.createdAt || 'UNKNOWN'
+      if (!buckets[t]) buckets[t] = []
+      buckets[t].push(p)
+    })
+    const times = Object.keys(buckets).sort((a, b) => (a < b ? 1 : a > b ? -1 : 0))
+    return { buckets, times }
+  }, [history])
+
+  useEffect(() => {
+    if (!activeBatch && historyBatches.times.length) {
+      setActiveBatch(historyBatches.times[0])
+    }
+  }, [activeBatch, historyBatches.times])
+
+  const activeBatchPositions = useMemo(() => {
+    if (!activeBatch) return []
+    const list = historyBatches.buckets[activeBatch] ?? []
+    return [...list].sort((a, b) => String(a.symbol).localeCompare(String(b.symbol)))
+  }, [activeBatch, historyBatches.buckets])
+
+  const activeBatchTotal = useMemo(() => {
+    return activeBatchPositions.reduce((s, i) => s + Number(i.amountUsd || 0), 0)
+  }, [activeBatchPositions])
+
+  const activeBatchPieStyle = useMemo(() => {
+    if (!activeBatchPositions.length || activeBatchTotal <= 0) return ''
+    let acc = 0
+    const segments = activeBatchPositions.map((item, idx) => {
+      const pct = (Number(item.amountUsd || 0) / activeBatchTotal) * 100
+      const start = acc
+      acc += pct
+      const end = acc
+      return `${colors[idx % colors.length]} ${start}% ${end}%`
+    })
+    return `conic-gradient(${segments.join(',')})`
+  }, [activeBatchPositions, activeBatchTotal])
+
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
       <Card
         title="当前持仓"
         extra={<Button onClick={exportCsv}>导出 Excel</Button>}
       >
+        <Space size={8} wrap style={{ marginBottom: 12 }}>
+          {currentBatchTime && <Tag color="blue">最新批次 {currentBatchTime}</Tag>}
+        </Space>
         <Space align="start" size="large" style={{ width: '100%', flexWrap: 'wrap' }}>
           <div style={{ width: 220, height: 220, borderRadius: '50%', background: pieStyle || '#f5f5f5', position: 'relative', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
             <div style={{ position: 'absolute', inset: 30, borderRadius: '50%', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
@@ -97,6 +144,66 @@ export default function Positions() {
             { title: '金额(USD)', dataIndex: 'amountUsd', render: (v: number) => Number(v || 0).toLocaleString() }
           ]}
         />
+      </Card>
+
+      <Card
+        title="历史批次"
+        extra={
+          <Space size={8} wrap>
+            <Tag color="blue">批次数 {historyBatches.times.length}</Tag>
+            <Select
+              style={{ minWidth: 260 }}
+              placeholder="选择批次(createdAt)"
+              value={activeBatch}
+              onChange={setActiveBatch}
+              options={historyBatches.times.map(t => ({ value: t, label: t }))}
+            />
+          </Space>
+        }
+      >
+        {!activeBatch ? (
+          <Typography.Text type="secondary">暂无历史数据</Typography.Text>
+        ) : (
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            <Space size={8} wrap>
+              <Tag color="purple">批次 {activeBatch}</Tag>
+              <Tag color="blue">总额 ${activeBatchTotal.toLocaleString()}</Tag>
+              <Tag color="default">条目 {activeBatchPositions.length}</Tag>
+            </Space>
+            <Space align="start" size="large" style={{ width: '100%', flexWrap: 'wrap' }}>
+              <div style={{ width: 220, height: 220, borderRadius: '50%', background: activeBatchPieStyle || '#f5f5f5', position: 'relative', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+                <div style={{ position: 'absolute', inset: 30, borderRadius: '50%', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
+                  <Typography.Text type="secondary">总额(USD)</Typography.Text>
+                  <Typography.Title level={4} style={{ margin: 0 }}>{activeBatchTotal.toLocaleString()}</Typography.Title>
+                </div>
+              </div>
+              <div style={{ flex: 1, minWidth: 320 }}>
+                {activeBatchPositions.map((item, idx) => (
+                  <Space key={idx} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <Space>
+                      <span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: 3, background: colors[idx % colors.length] }} />
+                      <Typography.Text strong>{item.symbol}</Typography.Text>
+                    </Space>
+                    <Space>
+                      <Tag color="blue">{item.percent}%</Tag>
+                      <Typography.Text>${Number(item.amountUsd || 0).toLocaleString()}</Typography.Text>
+                    </Space>
+                  </Space>
+                ))}
+              </div>
+            </Space>
+            <Table
+              dataSource={activeBatchPositions}
+              pagination={false}
+              rowKey={(r, idx) => String(r?.id ?? idx)}
+              columns={[
+                { title: '币种', dataIndex: 'symbol' },
+                { title: '占比(%)', dataIndex: 'percent' },
+                { title: '金额(USD)', dataIndex: 'amountUsd', render: (v: number) => Number(v || 0).toLocaleString() }
+              ]}
+            />
+          </Space>
+        )}
       </Card>
 
       <Card title="近7日持仓趋势" extra={

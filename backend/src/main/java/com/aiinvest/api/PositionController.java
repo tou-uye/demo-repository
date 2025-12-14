@@ -5,6 +5,7 @@ import com.aiinvest.repo.PositionRepository;
 import com.aiinvest.api.dto.UpdatePositionRequest;
 import com.aiinvest.domain.PositionSnapshot;
 import com.aiinvest.repo.PositionSnapshotRepository;
+import com.aiinvest.service.PositionBatchService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,21 +23,26 @@ import jakarta.servlet.http.HttpServletResponse;
 public class PositionController {
     private final PositionRepository repo;
     private final PositionSnapshotRepository snapshotRepository;
-    public PositionController(PositionRepository repo, PositionSnapshotRepository snapshotRepository) { this.repo = repo; this.snapshotRepository = snapshotRepository; }
+    private final PositionBatchService positionBatchService;
+    public PositionController(PositionRepository repo, PositionSnapshotRepository snapshotRepository, PositionBatchService positionBatchService) {
+        this.repo = repo;
+        this.snapshotRepository = snapshotRepository;
+        this.positionBatchService = positionBatchService;
+    }
 
     @GetMapping("/current")
     public List<Position> current() {
-        return repo.findByCreatedAtIsNotNullOrderByCreatedAtDesc();
+        return positionBatchService.currentPositions();
     }
 
     @GetMapping("/ai")
     public List<Position> aiCurrent() {
-        return repo.findByCreatedAtIsNotNullOrderByCreatedAtDesc();
+        return positionBatchService.currentPositions();
     }
 
     @GetMapping("/history")
     public List<Position> history() {
-        return repo.findAll();
+        return positionBatchService.historyPositions();
     }
 
     @GetMapping("/snapshots")
@@ -91,7 +97,7 @@ public class PositionController {
             header.createCell(2).setCellValue("amountUsd");
             header.createCell(3).setCellValue("createdAt");
 
-            List<Position> positions = repo.findByCreatedAtIsNotNullOrderByCreatedAtDesc();
+            List<Position> positions = positionBatchService.currentPositions();
             for (int i = 0; i < positions.size(); i++) {
                 Position p = positions.get(i);
                 Row row = sheet.createRow(i + 1);
@@ -118,18 +124,15 @@ public class PositionController {
         }
         java.math.BigDecimal percentTotal = java.math.BigDecimal.ZERO;
         java.math.BigDecimal amountTotal = java.math.BigDecimal.ZERO;
-        repo.deleteAll();
         OffsetDateTime now = OffsetDateTime.now();
+        List<Position> positions = new ArrayList<>();
         for (UpdatePositionRequest r : items) {
-            if (r.getSymbol() == null || r.getSymbol().trim().isEmpty()) {
-                return ResponseEntity.badRequest().body("symbol cannot be empty");
-            }
             Position p = new Position();
             p.setSymbol(r.getSymbol());
             p.setPercent(r.getPercent());
             p.setAmountUsd(r.getAmountUsd());
             p.setCreatedAt(now);
-            repo.save(p);
+            positions.add(p);
             percentTotal = percentTotal.add(r.getPercent());
             amountTotal = amountTotal.add(r.getAmountUsd());
         }
@@ -139,6 +142,7 @@ public class PositionController {
         if (amountTotal.compareTo(java.math.BigDecimal.ZERO) <= 0) {
             return ResponseEntity.badRequest().body("total amount must be positive");
         }
+        repo.saveAll(positions);
         return ResponseEntity.ok().build();
     }
 }

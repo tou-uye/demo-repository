@@ -16,6 +16,9 @@ type Report = {
   sentiment?: string
   impactStrength?: string
   keyPoints?: string
+  reviewReason?: string
+  reviewer?: string
+  reviewedAt?: string
 }
 
 type Msg = { id: number; title: string; symbol?: string; sentiment?: string; sourceUrl?: string; createdAt?: string }
@@ -123,9 +126,9 @@ export default function Reports() {
       >
         <Space size={8} wrap style={{ marginBottom: 12 }}>
           <Tag color="blue">待审 {statusCounts.PENDING}</Tag>
-          <Tag color="green">已过 {statusCounts.APPROVED}</Tag>
-          <Tag color="red">已驳 {statusCounts.REJECTED}</Tag>
-          <Typography.Text type="secondary">当前筛选：{status}</Typography.Text>
+          <Tag color="green">通过 {statusCounts.APPROVED}</Tag>
+          <Tag color="red">驳回 {statusCounts.REJECTED}</Tag>
+          <Typography.Text type="secondary">当前过滤：{status}</Typography.Text>
           <Tag color="green">利好 {sentimentCounts['利好']}</Tag>
           <Tag color="red">利空 {sentimentCounts['利空']}</Tag>
           <Tag color="default">中性 {sentimentCounts['中性']}</Tag>
@@ -177,6 +180,11 @@ export default function Reports() {
                         {item.impactStrength && <Tag color="blue">影响 {item.impactStrength}</Tag>}
                         {item.confidence && <Tag color="purple">信心 {item.confidence}</Tag>}
                         {item.reviewReason && item.status === 'REJECTED' && <Tag color="volcano">驳回原因：{item.reviewReason}</Tag>}
+                        {(item.reviewer || item.reviewedAt) && (
+                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                            审核人：{item.reviewer || '-'} · 审核时间：{item.reviewedAt || '-'}
+                          </Typography.Text>
+                        )}
                       </Space>
                       {(plan || pos || adj || analysis || item.riskNotes || item.keyPoints) && (
                         <Collapse
@@ -217,7 +225,7 @@ export default function Reports() {
         okText="提交"
         cancelText="取消"
       >
-        <Input.TextArea rows={4} value={reason} onChange={e => setReason(e.target.value)} placeholder="请输入驳回原因" />
+        <Input.TextArea rows={4} value={reason} onChange={e => setReason(e.target.value)} placeholder="请输入驳回理由" />
       </Modal>
     </>
   )

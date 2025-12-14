@@ -4,6 +4,7 @@ import com.aiinvest.domain.Position;
 import com.aiinvest.domain.Report;
 import com.aiinvest.repo.PositionRepository;
 import com.aiinvest.repo.ReportRepository;
+import com.aiinvest.service.PositionBatchService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,14 +24,16 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class ReviewController {
     private final ReportRepository repo;
     private final PositionRepository positionRepository;
+    private final PositionBatchService positionBatchService;
     private final OperationLogRepository operationLogRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final AtomicInteger applyFailCount = new AtomicInteger(0);
     private static final int APPLY_FAIL_THRESHOLD = 2;
 
-    public ReviewController(ReportRepository repo, PositionRepository positionRepository, OperationLogRepository operationLogRepository) {
+    public ReviewController(ReportRepository repo, PositionRepository positionRepository, PositionBatchService positionBatchService, OperationLogRepository operationLogRepository) {
         this.repo = repo;
         this.positionRepository = positionRepository;
+        this.positionBatchService = positionBatchService;
         this.operationLogRepository = operationLogRepository;
     }
 
@@ -41,11 +44,6 @@ public class ReviewController {
         if (r == null) {
             return ResponseEntity.notFound().build();
         }
-        r.setStatus("APPROVED");
-        r.setReviewer(user != null ? user : "admin");
-        r.setReviewedAt(OffsetDateTime.now());
-        repo.save(r);
-
         boolean applied = false;
         String failReason = null;
         try {
@@ -70,6 +68,12 @@ public class ReviewController {
             resp.put("errors", failReason);
             return ResponseEntity.status(500).body(resp);
         }
+
+        r.setStatus("APPROVED");
+        r.setReviewer(user != null ? user : "admin");
+        r.setReviewedAt(OffsetDateTime.now());
+        repo.save(r);
+
         applyFailCount.set(0);
         log("APPLY_PLAN", "SUCCESS", "reportId=" + id);
         Map<String, Object> resp = new HashMap<>();
@@ -107,13 +111,20 @@ public class ReviewController {
             return false;
         }
         try {
-            Map<String, Object> map = objectMapper.readValue(plan, Map.class);
-            Object snapshot = map.get("positions_snapshot");
-            Object adjustments = map.get("adjustments");
-            if (applySnapshot(snapshot, errors)) {
-                return true;
+            Object root = objectMapper.readValue(plan, Object.class);
+            Object snapshot = null;
+            Object adjustments = null;
+            if (root instanceof Map) {
+                Map<String, Object> map = (Map<String, Object>) root;
+                snapshot = map.get("positions_snapshot");
+                adjustments = map.get("adjustments");
+            } else if (root instanceof List) {
+                // 有些输出直接就是 positions_snapshot 数组
+                snapshot = root;
             }
-            if (applyAdjustments(adjustments, errors)) {
+            boolean appliedSnapshot = applySnapshot(snapshot, errors);
+            boolean appliedAdjustments = applyAdjustments(adjustments, errors);
+            if (appliedSnapshot || appliedAdjustments) {
                 return true;
             }
             errors.add("no valid snapshot or adjustments");
@@ -126,9 +137,8 @@ public class ReviewController {
     private boolean applySnapshot(Object snapshot, List<String> errors) {
         if (!(snapshot instanceof List) || ((List) snapshot).isEmpty()) return false;
         List list = (List) snapshot;
-        positionRepository.deleteAll();
         OffsetDateTime now = OffsetDateTime.now();
-        int applied = 0;
+        List<Position> positions = new ArrayList<>();
         for (Object o : list) {
             if (!(o instanceof Map)) continue;
             Map row = (Map) o;
@@ -156,22 +166,21 @@ public class ReviewController {
             p.setPercent(percent);
             p.setAmountUsd(amount);
             p.setCreatedAt(now);
-            positionRepository.save(p);
-            applied++;
+            positions.add(p);
         }
-        if (applied == 0) {
+        if (positions.isEmpty()) {
             errors.add("snapshot applied 0 rows");
             return false;
         }
+        positionRepository.saveAll(positions);
         return true;
     }
 
     private boolean applyAdjustments(Object adjustments, List<String> errors) {
         if (!(adjustments instanceof List) || ((List) adjustments).isEmpty()) return false;
-        List existing = positionRepository.findAll();
         Map<String, Position> map = new LinkedHashMap<>();
         OffsetDateTime now = OffsetDateTime.now();
-        for (Object o : existing) {
+        for (Object o : positionBatchService.currentPositions()) {
             if (o instanceof Position p) {
                 map.put(p.getSymbol(), clonePosition(p, now));
             }
@@ -203,13 +212,7 @@ public class ReviewController {
             }
             map.put(symbol, base);
         }
-        positionRepository.deleteAll();
-        int applied = 0;
-        for (Position p : map.values()) {
-            positionRepository.save(p);
-            applied++;
-        }
-        if (applied == 0) {
+        if (map.isEmpty()) {
             errors.add("adjustments applied 0 rows");
             return false;
         }
@@ -218,6 +221,7 @@ public class ReviewController {
             errors.add("percent total out of range: " + totalPercent);
             return false;
         }
+        positionRepository.saveAll(map.values());
         return true;
     }
 

@@ -17,7 +17,7 @@ public class ReportController {
     @PostMapping("/generate")
     public Map<String, Object> generate(@RequestBody Map<String, Object> input) {
         Report r = new Report();
-        r.setSummary(String.valueOf(input.getOrDefault("summary", "建议报告占位")));
+        r.setSummary(trimSummary(String.valueOf(input.getOrDefault("summary", "建议报告占位"))));
         r.setStatus("PENDING");
         Object mid = input.get("messageId");
         if (mid != null) r.setMessageId(Long.valueOf(String.valueOf(mid)));
@@ -45,7 +45,7 @@ public class ReportController {
         if (analysis != null) {
             try { r.setAnalysisJson(objectMapper.writeValueAsString(analysis)); } catch (Exception ignored) {}
             if (r.getSummary() == null || r.getSummary().isBlank()) {
-                r.setSummary(String.valueOf(analysis));
+                r.setSummary(trimSummary(String.valueOf(analysis)));
             }
         }
         r.setCreatedAt(java.time.OffsetDateTime.now());
@@ -55,6 +55,13 @@ public class ReportController {
         m.put("status", r.getStatus());
         m.put("summary", r.getSummary());
         return m;
+    }
+
+    private String trimSummary(String s) {
+        if (s == null) return "";
+        String v = s.trim();
+        int limit = 250;
+        return v.length() > limit ? v.substring(0, limit) : v;
     }
 
     @GetMapping("/pending")

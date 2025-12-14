@@ -1,8 +1,8 @@
-import { Card, List, Tag, Button, message as antdMessage, Select, Space, Typography, Modal, Badge } from 'antd'
+import { Card, List, Tag, Button, message as antdMessage, Select, Space, Typography, Modal, Badge, Divider } from 'antd'
 import { useEffect, useState } from 'react'
 import { fetchJson } from '../utils/api'
 
-type Msg = { id: number; title: string; symbol?: string; sentiment?: string; sourceUrl?: string; read?: boolean }
+type Msg = { id: number; title: string; symbol?: string; sentiment?: string; sourceUrl?: string; content?: string; summary?: string; impactDescription?: string; read?: boolean }
 
 export default function Messages() {
   const [data, setData] = useState<Msg[]>([])
@@ -29,12 +29,31 @@ export default function Messages() {
   const collect = async () => {
     setLoading(true)
     try {
-      await fetch('/api/messages/collect', { method: 'POST' })
-      antdMessage.success('已触发采集并分析')
-      const r = await fetchJson<Msg[]>('/api/messages')
-      setData(r ?? [])
+      const res = await fetch('/api/messages/collect', { method: 'POST' })
+      const txt = await res.text()
+      let started = true
+      try {
+        const json = JSON.parse(txt)
+        started = Boolean(json?.started ?? true)
+      } catch {}
+      const key = 'collect'
+      antdMessage.open({ key, type: 'loading', content: started ? '采集任务已启动，正在运行…' : '采集任务正在运行…', duration: 0 })
+      const poll = async () => {
+        const status = await fetchJson<any>('/api/messages/collect/status')
+        if (!status || status.running) return false
+        return true
+      }
+      const timer = window.setInterval(async () => {
+        const done = await poll()
+        if (!done) return
+        window.clearInterval(timer)
+        const r = await fetchJson<Msg[]>('/api/messages')
+        setData(r ?? [])
+        antdMessage.open({ key, type: 'success', content: '采集完成，已刷新', duration: 2 })
+        setLoading(false)
+      }, 1500)
     } finally {
-      setLoading(false)
+      // keep loading until poll done
     }
   }
 
@@ -120,6 +139,27 @@ export default function Messages() {
           <Typography.Text type="secondary">币种：{selected?.symbol || '-'}</Typography.Text>
           <Typography.Text type="secondary">情绪：{selected?.sentiment || '-'}</Typography.Text>
           {selected?.sourceUrl && <a href={selected.sourceUrl} target="_blank" rel="noreferrer">查看来源</a>}
+          {(selected?.summary || selected?.impactDescription || selected?.content) && <Divider style={{ margin: '8px 0' }} />}
+          {selected?.summary && (
+            <div>
+              <Typography.Text type="secondary">摘要</Typography.Text>
+              <div style={{ whiteSpace: 'pre-wrap' }}>{selected.summary}</div>
+            </div>
+          )}
+          {selected?.impactDescription && (
+            <div>
+              <Typography.Text type="secondary">影响描述</Typography.Text>
+              <div style={{ whiteSpace: 'pre-wrap' }}>{selected.impactDescription}</div>
+            </div>
+          )}
+          {selected?.content && (
+            <div>
+              <Typography.Text type="secondary">正文</Typography.Text>
+              <div style={{ whiteSpace: 'pre-wrap', maxHeight: 240, overflow: 'auto', border: '1px solid #f0f0f0', padding: 8, borderRadius: 6 }}>
+                {selected.content}
+              </div>
+            </div>
+          )}
         </Space>
       </Modal>
     </Card>

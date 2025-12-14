@@ -16,14 +16,32 @@ export default function Overview() {
   }, [])
 
   const collect = async () => {
-    await fetch('/api/messages/collect', { method: 'POST' })
-    antdMessage.success('已触发采集并分析')
-    const r = await fetchJson<typeof data>('/api/overview')
-    r && setData({
-      unreadMessages: Number((r as any).unreadMessages ?? 0),
-      pendingReports: Number((r as any).pendingReports ?? 0),
-      totalAssetUsd: Number((r as any).totalAssetUsd ?? 0)
-    })
+    const res = await fetch('/api/messages/collect', { method: 'POST' })
+    const txt = await res.text()
+    let started = true
+    try {
+      const json = JSON.parse(txt)
+      started = Boolean(json?.started ?? true)
+    } catch {}
+    const key = 'collect'
+    antdMessage.open({ key, type: 'loading', content: started ? '采集任务已启动，正在运行…' : '采集任务正在运行…', duration: 0 })
+    const poll = async () => {
+      const status = await fetchJson<any>('/api/messages/collect/status')
+      if (!status || status.running) return false
+      return true
+    }
+    const timer = window.setInterval(async () => {
+      const done = await poll()
+      if (!done) return
+      window.clearInterval(timer)
+      const r = await fetchJson<typeof data>('/api/overview')
+      r && setData({
+        unreadMessages: Number((r as any).unreadMessages ?? 0),
+        pendingReports: Number((r as any).pendingReports ?? 0),
+        totalAssetUsd: Number((r as any).totalAssetUsd ?? 0)
+      })
+      antdMessage.open({ key, type: 'success', content: '采集完成，已刷新', duration: 2 })
+    }, 1500)
   }
 
   return (

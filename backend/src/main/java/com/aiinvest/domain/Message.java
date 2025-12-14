@@ -13,6 +13,12 @@ public class Message {
     private String symbol;
     private String sentiment;
     private String sourceUrl;
+    @Column(columnDefinition = "LONGTEXT")
+    private String content;
+    @Column(columnDefinition = "LONGTEXT")
+    private String summary;
+    @Column(columnDefinition = "LONGTEXT")
+    private String impactDescription;
     @Column(nullable = false)
     private OffsetDateTime createdAt;
     @Column(nullable = false)
@@ -28,6 +34,12 @@ public class Message {
     public void setSentiment(String sentiment) { this.sentiment = sentiment; }
     public String getSourceUrl() { return sourceUrl; }
     public void setSourceUrl(String sourceUrl) { this.sourceUrl = sourceUrl; }
+    public String getContent() { return content; }
+    public void setContent(String content) { this.content = content; }
+    public String getSummary() { return summary; }
+    public void setSummary(String summary) { this.summary = summary; }
+    public String getImpactDescription() { return impactDescription; }
+    public void setImpactDescription(String impactDescription) { this.impactDescription = impactDescription; }
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
     public boolean isReadFlag() { return readFlag; }
