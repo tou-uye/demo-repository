@@ -104,4 +104,15 @@ public class MessageController {
         messageRepository.saveAll(list);
         return ResponseEntity.ok(Collections.singletonMap("updated", list.size()));
     }
+
+    @PostMapping("/unread")
+    public ResponseEntity<?> markUnread(@RequestBody List<Long> ids) {
+        if (ids == null || ids.isEmpty()) return ResponseEntity.badRequest().body("ids required");
+        List<Message> list = messageRepository.findAllById(ids);
+        for (Message m : list) {
+            m.setReadFlag(false);
+        }
+        messageRepository.saveAll(list);
+        return ResponseEntity.ok(Collections.singletonMap("updated", list.size()));
+    }
 }

@@ -110,8 +110,19 @@ public class ReviewController {
             errors.add("plan is empty");
             return false;
         }
+        // 尝试按照不同格式解析：planJson -> positionsSnapshotJson -> adjustmentsJson
+        if (tryApplyFromJson(plan, errors)) return true;
+        if (tryApplyFromJson(r.getPositionsSnapshotJson(), errors)) return true;
+        if (tryApplyFromJson(r.getAdjustmentsJson(), errors)) return true;
+        errors.add("plan parse error: no valid snapshot or adjustments");
+        return false;
+    }
+
+    @SuppressWarnings("unchecked")
+    private boolean tryApplyFromJson(String json, List<String> errors) {
+        if (json == null || json.trim().isEmpty()) return false;
         try {
-            Object root = objectMapper.readValue(plan, Object.class);
+            Object root = objectMapper.readValue(json, Object.class);
             Object snapshot = null;
             Object adjustments = null;
             if (root instanceof Map) {
@@ -119,21 +130,17 @@ public class ReviewController {
                 snapshot = map.get("positions_snapshot");
                 adjustments = map.get("adjustments");
             } else if (root instanceof List) {
-                // 有些输出直接就是 positions_snapshot 数组
+                // 直接就是 positions_snapshot 数组
                 snapshot = root;
             }
             boolean appliedSnapshot = applySnapshot(snapshot, errors);
             boolean appliedAdjustments = applyAdjustments(adjustments, errors);
-            if (appliedSnapshot || appliedAdjustments) {
-                return true;
-            }
-            errors.add("no valid snapshot or adjustments");
+            return appliedSnapshot || appliedAdjustments;
         } catch (Exception e) {
             errors.add("plan parse error: " + e.getMessage());
+            return false;
         }
-        return false;
     }
-
     private boolean applySnapshot(Object snapshot, List<String> errors) {
         if (!(snapshot instanceof List) || ((List) snapshot).isEmpty()) return false;
         List list = (List) snapshot;

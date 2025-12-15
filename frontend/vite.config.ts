@@ -7,7 +7,8 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:8090',
+        // Point frontend API calls to the same public endpoint as backend exposure.
+        target: 'http://api12.w1.luyouxia.net',
         changeOrigin: true
       }
     }

@@ -2,7 +2,17 @@ import { Card, List, Tag, Button, message as antdMessage, Select, Space, Typogra
 import { useEffect, useState } from 'react'
 import { fetchJson } from '../utils/api'
 
-type Msg = { id: number; title: string; symbol?: string; sentiment?: string; sourceUrl?: string; content?: string; summary?: string; impactDescription?: string; read?: boolean }
+type Msg = {
+  id: number
+  title: string
+  symbol?: string
+  sentiment?: string
+  sourceUrl?: string
+  content?: string
+  summary?: string
+  impactDescription?: string
+  read?: boolean
+}
 
 export default function Messages() {
   const [data, setData] = useState<Msg[]>([])
@@ -10,6 +20,7 @@ export default function Messages() {
   const [symbolFilter, setSymbolFilter] = useState<string | undefined>(undefined)
   const [sentimentFilter, setSentimentFilter] = useState<string | undefined>(undefined)
   const [selected, setSelected] = useState<Msg | null>(null)
+  const [showUnreadOnly, setShowUnreadOnly] = useState(false)
 
   useEffect(() => {
     fetchJson<Msg[]>('/api/messages').then(r => setData(r ?? []))
@@ -22,8 +33,19 @@ export default function Messages() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(ids)
     })
-    setData(prev => prev.map(m => ids.includes(m.id) ? { ...m, read: true } : m))
+    setData(prev => prev.map(m => (ids.includes(m.id) ? { ...m, read: true } : m)))
     antdMessage.success('已标记已读')
+  }
+
+  const markUnread = async (ids: number[]) => {
+    if (!ids.length) return
+    await fetch('/api/messages/unread', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(ids)
+    })
+    setData(prev => prev.map(m => (ids.includes(m.id) ? { ...m, read: false } : m)))
+    antdMessage.success('已标记未读')
   }
 
   const collect = async () => {
@@ -35,7 +57,9 @@ export default function Messages() {
       try {
         const json = JSON.parse(txt)
         started = Boolean(json?.started ?? true)
-      } catch {}
+      } catch {
+        // ignore parse error, assume已启动
+      }
       const key = 'collect'
       antdMessage.open({ key, type: 'loading', content: started ? '采集任务已启动，正在运行…' : '采集任务正在运行…', duration: 0 })
       const poll = async () => {
@@ -53,12 +77,13 @@ export default function Messages() {
         setLoading(false)
       }, 1500)
     } finally {
-      // keep loading until poll done
+      // 保持 loading 由轮询结束关闭
     }
   }
 
   const symbols = Array.from(new Set((data ?? []).map(i => i.symbol).filter(Boolean))) as string[]
   const filtered = data.filter(item => {
+    if (showUnreadOnly && item.read) return false
     const matchSymbol = symbolFilter ? item.symbol === symbolFilter : true
     const matchSentiment = sentimentFilter ? item.sentiment === sentimentFilter : true
     return matchSymbol && matchSentiment
@@ -72,8 +97,14 @@ export default function Messages() {
         <Space size={10} wrap>
           <Tag color="red">未读 {unreadCount}</Tag>
           <Typography.Text type="secondary">筛选提示：情绪仅限“利好/利空/中性”，币种按消息标注</Typography.Text>
+          <Button size="small" onClick={() => setShowUnreadOnly(v => !v)}>
+            {showUnreadOnly ? '显示全部' : '只看未读'}
+          </Button>
           <Button size="small" onClick={() => markRead(filtered.map(i => i.id))} disabled={!filtered.some(i => !i.read)}>
             标记全部已读
+          </Button>
+          <Button size="small" onClick={() => markUnread(filtered.map(i => i.id))} disabled={!filtered.some(i => i.read === true)}>
+            标记为未读
           </Button>
           <Select
             allowClear
@@ -129,7 +160,12 @@ export default function Messages() {
         footer={
           <Space>
             <Button onClick={() => setSelected(null)}>关闭</Button>
-            {selected?.id != null && <Button type="primary" onClick={() => { markRead([selected.id]); setSelected(null) }}>标记已读</Button>}
+            {selected?.id != null && (
+              <>
+                <Button onClick={() => { markUnread([selected.id]); setSelected(null) }}>标记未读</Button>
+                <Button type="primary" onClick={() => { markRead([selected.id]); setSelected(null) }}>标记已读</Button>
+              </>
+            )}
           </Space>
         }
         title="消息详情"

@@ -17,18 +17,23 @@ export default function Positions() {
   const [series, setSeries] = useState<SnapshotSeries[]>([])
   const [activeSymbol, setActiveSymbol] = useState<string>('TOTAL')
 
+  const load = async () => {
+    const cur = await fetchJson<Position[]>('/api/positions/current')
+    setCurrent(Array.isArray(cur) ? cur : [])
+    const his = await fetchJson<Position[]>('/api/positions/history')
+    setHistory(Array.isArray(his) ? his : [])
+    const snap = await fetchJson<SnapshotResp>('/api/positions/snapshots?days=7')
+    if (snap && (snap as any).totals) {
+      setSnapshots(snap.totals ?? [])
+      setSeries(snap.series ?? [])
+    } else {
+      setSnapshots([])
+      setSeries([])
+    }
+  }
+
   useEffect(() => {
-    fetchJson<Position[]>('/api/positions/current').then(r => setCurrent(Array.isArray(r) ? r : []))
-    fetchJson<Position[]>('/api/positions/history').then(r => setHistory(Array.isArray(r) ? r : []))
-    fetchJson<SnapshotResp>('/api/positions/snapshots?days=7').then(r => {
-      if (r && (r as any).totals) {
-        setSnapshots(r.totals ?? [])
-        setSeries(r.series ?? [])
-      } else {
-        setSnapshots([])
-        setSeries([])
-      }
-    })
+    load()
   }, [])
 
   const total = useMemo(() => current.reduce((s, i) => s + Number(i.amountUsd || 0), 0), [current])
@@ -106,7 +111,12 @@ export default function Positions() {
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
       <Card
         title="当前持仓"
-        extra={<Button onClick={exportCsv}>导出 Excel</Button>}
+        extra={
+          <Space size={8} wrap>
+            <Button onClick={load}>刷新</Button>
+            <Button onClick={exportCsv}>导出 Excel</Button>
+          </Space>
+        }
       >
         <Space size={8} wrap style={{ marginBottom: 12 }}>
           {currentBatchTime && <Tag color="blue">最新批次 {currentBatchTime}</Tag>}
@@ -153,7 +163,7 @@ export default function Positions() {
             <Tag color="blue">批次数 {historyBatches.times.length}</Tag>
             <Select
               style={{ minWidth: 260 }}
-              placeholder="选择批次(createdAt)"
+              placeholder="选择批次 (createdAt)"
               value={activeBatch}
               onChange={setActiveBatch}
               options={historyBatches.times.map(t => ({ value: t, label: t }))}
@@ -206,16 +216,19 @@ export default function Positions() {
         )}
       </Card>
 
-      <Card title="近7日持仓趋势" extra={
-        <Space size={8} wrap>
-          <Button type={activeSymbol === 'TOTAL' ? 'primary' : 'default'} onClick={() => setActiveSymbol('TOTAL')}>总额</Button>
-          {series.map(s => (
-            <Button key={s.symbol} type={activeSymbol === s.symbol ? 'primary' : 'default'} onClick={() => setActiveSymbol(s.symbol)}>
-              {s.symbol}
-            </Button>
-          ))}
-        </Space>
-      }>
+      <Card
+        title="近7日持仓趋势"
+        extra={
+          <Space size={8} wrap>
+            <Button type={activeSymbol === 'TOTAL' ? 'primary' : 'default'} onClick={() => setActiveSymbol('TOTAL')}>总额</Button>
+            {series.map(s => (
+              <Button key={s.symbol} type={activeSymbol === s.symbol ? 'primary' : 'default'} onClick={() => setActiveSymbol(s.symbol)}>
+                {s.symbol}
+              </Button>
+            ))}
+          </Space>
+        }
+      >
         <TrendLine data={activeSeries} />
       </Card>
     </Space>
@@ -229,11 +242,13 @@ function TrendLine({ data }: { data: [string, number][] }) {
   const padding = 10
   const width = 600
   const height = 200
-  const points = data.map(([_, v], idx) => {
-    const x = (idx / Math.max(data.length - 1, 1)) * (width - padding * 2) + padding
-    const y = height - padding - ((v - minVal) / Math.max(maxVal - minVal || 1, 1)) * (height - padding * 2)
-    return `${x},${y}`
-  }).join(' ')
+  const points = data
+    .map(([_, v], idx) => {
+      const x = (idx / Math.max(data.length - 1, 1)) * (width - padding * 2) + padding
+      const y = height - padding - ((v - minVal) / Math.max(maxVal - minVal || 1, 1)) * (height - padding * 2)
+      return `${x},${y}`
+    })
+    .join(' ')
   return (
     <svg width="100%" viewBox={`0 0 ${width} ${height}`}>
       <polyline fill="none" stroke="#1677ff" strokeWidth="2" points={points} />
@@ -243,7 +258,9 @@ function TrendLine({ data }: { data: [string, number][] }) {
         return (
           <g key={label}>
             <circle cx={x} cy={y} r={3} fill="#1677ff" />
-            <text x={x} y={height - 2} fontSize="10" textAnchor="middle">{label.slice(5)}</text>
+            <text x={x} y={height - 2} fontSize="10" textAnchor="middle">
+              {label.slice(5)}
+            </text>
           </g>
         )
       })}

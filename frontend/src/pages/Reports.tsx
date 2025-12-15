@@ -39,17 +39,22 @@ export default function Reports() {
     fetchJson<Msg[]>('/api/messages').then(r => setMessages(r ?? []))
   }, [status])
 
-  const approve = (id?: number) =>
-    id != null &&
-    fetch(`/api/review/approve/${id}`, { method: 'POST' }).then(async res => {
-      if (!res.ok) {
-        const text = await res.text()
-        antdMessage.error(text || '审核失败')
-      } else {
-        antdMessage.success('已通过')
-      }
-      load()
+  const approve = (id?: number) => {
+    if (id == null) return
+    Modal.confirm({
+      title: '确认通过该报告？',
+      onOk: () =>
+        fetch(`/api/review/approve/${id}`, { method: 'POST' }).then(async res => {
+          if (!res.ok) {
+            const text = await res.text()
+            antdMessage.error(text || '审核失败')
+          } else {
+            antdMessage.success('已通过')
+          }
+          load()
+        })
     })
+  }
 
   const reject = (id?: number) => {
     if (id == null) return
@@ -200,7 +205,7 @@ export default function Reports() {
                                   {item.riskNotes && <Typography.Text>风险：{item.riskNotes}</Typography.Text>}
                                   {analysis && <PreBlock title="分析" data={analysis} />}
                                   {pos && <PreBlock title="持仓快照" data={pos} />}
-                                  {adj && <PreBlock title="调整建议" data={adj} />}
+                                  {adj && <PreBlock title="调仓建议" data={adj} />}
                                   {plan && <PreBlock title="原始 Plan" data={plan} />}
                                 </Space>
                               )
